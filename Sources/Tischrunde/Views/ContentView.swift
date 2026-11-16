@@ -12,6 +12,8 @@ struct ContentView: View {
         Form {
             if let outcome = model.outcome {
                 ResultSection(model: model, outcome: outcome)
+            } else if model.previewState != .none {
+                PreviewSection(model: model)
             }
             if case let .failed(message) = model.state {
                 Section {
@@ -65,10 +67,6 @@ struct ContentView: View {
             Button("OK") { model.errorAlert = nil }
         } message: {
             Text(model.errorAlert ?? "")
-        }
-        .onChange(of: model.mode) {
-            if !model.state.isRunning { model.state = .idle }
-            model.player.unload()
         }
     }
 }
@@ -236,6 +234,42 @@ struct MasterFileSection: View {
                     onPick: model.add
                 )
             }
+        }
+    }
+}
+
+/// Listening before processing.
+struct PreviewSection: View {
+    var model: AppModel
+
+    var body: some View {
+        Section {
+            switch model.previewState {
+            case let .running(fraction):
+                HStack(spacing: 12) {
+                    ProgressView(value: fraction)
+                        .frame(maxWidth: 220)
+                    Text("Vorschau wird vorbereitet …")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+                .padding(.vertical, 6)
+            case .ready:
+                PlayerView(model: model, player: model.player)
+            case let .failed(message):
+                Label(message, systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+            case .none:
+                EmptyView()
+            }
+        } header: {
+            Label("Vorhören", systemImage: "headphones")
+        } footer: {
+            Text(model.mode == .multitrack
+                ? "Unbearbeitete, synchronisierte Summe aller Spuren in gleicher Lautheit. Hier Anfang, Ende und Kapitel setzen – danach verarbeiten."
+                : "Die Datei, wie sie ist. Hier Anfang, Ende und Kapitel setzen – danach mastern.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
         }
     }
 }

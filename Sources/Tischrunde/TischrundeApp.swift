@@ -64,5 +64,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard !CommandLine.arguments.contains("--screenshots") else { return }
         AppModel.shared.saveSession()
         AppModel.shared.outcome?.discardTemporaryFiles()
+        AppModel.shared.decodeCache.removeAll()
     }
 }

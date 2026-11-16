@@ -178,3 +178,20 @@ struct PipelineTests {
         }
     }
 }
+
+@Suite("Vorschau")
+struct PreviewTests {
+    @Test("Preview is synchronised, on the source timeline and at target loudness")
+    func preview() throws {
+        let voice = TestSignals.speaker(seconds: 12, active: [0..<12], rmsDB: -30, seed: 120)
+        let early = TestSignals.noise(seconds: 0.2, rmsDB: -70, seed: 121) + voice
+        let tracks = [
+            PipelineInput(name: "A", source: ArraySource(voice)),
+            PipelineInput(name: "B", source: ArraySource(early)),
+        ]
+        let mix = try PreviewMix.render(tracks: tracks, settings: .default, scratch: InMemoryScratch())
+        #expect(mix.count == voice.count)
+        let loudness = try #require(try Loudness.integrated(of: mix))
+        #expect(abs(loudness - -16) <= 0.5)
+    }
+}

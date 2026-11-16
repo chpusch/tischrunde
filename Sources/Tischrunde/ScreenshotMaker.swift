@@ -40,6 +40,10 @@ enum ScreenshotMaker {
         model.mode = .multitrack
         model.add(files)
         model.title = "Folge 12 – Gartenzeit"
+        while case .running = model.previewState {
+            try await Task.sleep(for: .milliseconds(200))
+        }
+        model.player.seek(to: 12.4)
         try await capture(window, appearance: .aqua, to: folder.appendingPathComponent("1-spuren.png"))
 
         // 2. Settings open.

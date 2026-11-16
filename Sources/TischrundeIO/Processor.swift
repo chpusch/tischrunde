@@ -88,6 +88,7 @@ public enum Processor {
         inputs: [URL],
         outputFolder: URL,
         makeOriginalMix: Bool = true,
+        cache: DecodedAudioCache? = nil,
         fft: any FFTBackend = AccelerateFFT(),
         progress: @escaping @Sendable (ProcessingProgress) -> Void = { _ in }
     ) async throws -> ProcessingOutcome {
@@ -119,6 +120,9 @@ public enum Processor {
         try await withThrowingTaskGroup(of: (Int, any SampleSource).self) { group in
             for (index, url) in usedInputs.enumerated() {
                 group.addTask {
+                    if let cache {
+                        return (index, try await cache.source(for: url) { decodeProgress.update(index, $0) })
+                    }
                     let buffer = try scratch.makeBuffer(named: "input-\(index)")
                     try AudioDecoder.decode(url, into: buffer) { decodeProgress.update(index, $0) }
                     return (index, try buffer.makeSource())

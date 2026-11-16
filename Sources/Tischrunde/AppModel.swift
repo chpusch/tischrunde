@@ -35,6 +35,14 @@ struct TrackItem: Identifiable, Equatable {
     var isUsable: Bool { info != nil }
 }
 
+/// Listening preview before processing.
+enum PreviewState: Equatable {
+    case none
+    case running(Double)
+    case ready(URL)
+    case failed(String)
+}
+
 enum ProcessingState {
     case idle
     case running(ProcessingProgress)
@@ -54,13 +62,37 @@ final class AppModel {
 
     // MARK: Project content
 
-    var mode: Project.Mode = .multitrack { didSet { contentChanged() } }
-    var tracks: [TrackItem] = [] { didSet { contentChanged() } }
-    var masterTrack: TrackItem? { didSet { contentChanged() } }
+    var mode: Project.Mode = .multitrack {
+        didSet {
+            contentChanged()
+            guard oldValue != mode else { return }
+            if !state.isRunning {
+                state = .idle
+                player.unload()
+            }
+            schedulePreview()
+        }
+    }
+    var tracks: [TrackItem] = [] {
+        didSet {
+            contentChanged()
+            if oldValue.map(\.url) != tracks.map(\.url) { schedulePreview() }
+        }
+    }
+    var masterTrack: TrackItem? {
+        didSet {
+            contentChanged()
+            if oldValue?.url != masterTrack?.url { schedulePreview() }
+        }
+    }
     var settings: Settings = AppModel.storedDefaultSettings() {
         didSet {
             contentChanged()
             if !isDemo { AppModel.storeDefaultSettings(settings) }
+            if oldValue.syncEnabled != settings.syncEnabled
+                || oldValue.targetLoudnessLUFS != settings.targetLoudnessLUFS {
+                schedulePreview()
+            }
         }
     }
     var trim = TrimRange() { didSet { contentChanged() } }
@@ -71,6 +103,7 @@ final class AppModel {
     // MARK: Window state
 
     var state: ProcessingState = .idle
+    var previewState: PreviewState = .none
     var projectURL: URL?
     var hasUnsavedChanges = false
     var settingsExpanded = false
@@ -82,6 +115,10 @@ final class AppModel {
     /// Screenshot mode: never touch the user's session or stored settings.
     var isDemo = false
 
+    /// Decoded inputs, shared by preview and processing.
+    @ObservationIgnored let decodeCache = DecodedAudioCache()
+    @ObservationIgnored private var previewTask: Task<Void, Never>?
+    @ObservationIgnored private var previewGeneration = 0
     @ObservationIgnored private var processingTask: Task<ProcessingOutcome, Error>?
     @ObservationIgnored private var autosaveTask: Task<Void, Never>?
     @ObservationIgnored private var isRestoring = false
@@ -177,8 +214,81 @@ final class AppModel {
 
     /// Current player position on the source timeline (where trims and chapters live).
     var playheadSourceTime: Double? {
-        guard let outcome, player.isLoaded else { return nil }
-        return Chapters.sourceTime(forOutput: player.currentTime, through: outcome.edits)
+        guard player.isLoaded else { return nil }
+        if let outcome {
+            return Chapters.sourceTime(forOutput: player.currentTime, through: outcome.edits)
+        }
+        // The preview already plays on the source timeline.
+        return player.currentTime
+    }
+
+    // MARK: Preview
+
+    /// Rebuilds the listening preview after the inputs changed.
+    func schedulePreview() {
+        previewTask?.cancel()
+        previewGeneration += 1
+        let generation = previewGeneration
+        decodeCache.keep(only: (tracks + [masterTrack].compactMap { $0 }).map(\.url))
+        if case let .ready(old) = previewState, old.path.hasPrefix(decodeCache.folder.path) {
+            if outcome == nil { player.unload() }
+            try? FileManager.default.removeItem(at: old)
+        }
+
+        let inputs = activeTracks.map(\.url)
+        guard !inputs.isEmpty, activeTracks.allSatisfy(\.isUsable) else {
+            previewState = .none
+            if outcome == nil { player.unload() }
+            return
+        }
+        if mode == .master {
+            // A finished file can be played as it is.
+            previewState = .ready(inputs[0])
+            loadPreviewIfIdle()
+            return
+        }
+
+        previewState = .running(0)
+        let settings = self.settings
+        let cache = decodeCache
+        let throttle = ProgressThrottle { [weak self] progress in
+            Task { @MainActor in
+                guard let self, self.previewGeneration == generation, case .running = self.previewState else { return }
+                self.previewState = .running(progress.fraction)
+            }
+        }
+        previewTask = Task {
+            // Short pause so several quick changes (e.g. reordering) build only once.
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+            let work = Task.detached(priority: .utility) {
+                try await Previewer.makePreview(inputs: inputs, settings: settings, cache: cache) {
+                    throttle.send(ProcessingProgress(stage: .decoding, fraction: $0))
+                }
+            }
+            do {
+                let url = try await withTaskCancellationHandler {
+                    try await work.value
+                } onCancel: {
+                    work.cancel()
+                }
+                guard previewGeneration == generation else {
+                    try? FileManager.default.removeItem(at: url)
+                    return
+                }
+                previewState = .ready(url)
+                loadPreviewIfIdle()
+            } catch {
+                guard previewGeneration == generation, !(error is CancellationError) else { return }
+                previewState = .failed(germanDescription(of: error))
+            }
+        }
+    }
+
+    /// Shows the preview in the player unless a processed result is loaded.
+    private func loadPreviewIfIdle() {
+        guard outcome == nil, !state.isRunning, case let .ready(url) = previewState else { return }
+        player.load(processed: url, original: nil)
     }
 
     func addChapter() {
@@ -225,8 +335,12 @@ final class AppModel {
                 self.state = .running(progress)
             }
         }
+        let cache = decodeCache
         let work = Task.detached(priority: .userInitiated) {
-            try await Processor.run(project: project, inputs: inputs, outputFolder: folder, makeOriginalMix: project.mode == .multitrack) {
+            try await Processor.run(
+                project: project, inputs: inputs, outputFolder: folder,
+                makeOriginalMix: project.mode == .multitrack, cache: cache
+            ) {
                 throttle.send($0)
             }
         }
@@ -237,6 +351,7 @@ final class AppModel {
                 finish(outcome)
             } catch {
                 state = error is CancellationError ? .idle : .failed(germanDescription(of: error))
+                loadPreviewIfIdle()
             }
             processingTask = nil
         }
@@ -267,6 +382,7 @@ final class AppModel {
             tracks[index].offsetMilliseconds = nil
             tracks[index].openFraction = nil
         }
+        loadPreviewIfIdle()
     }
 
     func revealInFinder() {

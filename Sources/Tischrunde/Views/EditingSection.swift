@@ -51,9 +51,9 @@ struct EditingSection: View {
 
     private var hint: String {
         if model.player.isLoaded {
-            return "Tipp: Ergebnis oben anhören und mit „Hier“ die aktuelle Wiedergabeposition übernehmen. Zeiten beziehen sich auf die Originalaufnahme; Kürzungen werden beim Export automatisch eingerechnet."
+            return "Tipp: Oben anhören und mit „Hier“ die aktuelle Wiedergabeposition übernehmen. Zeiten beziehen sich auf die Originalaufnahme; gekürzte Pausen werden beim Export automatisch eingerechnet."
         }
-        return "Zeiten beziehen sich auf die Originalaufnahme (z. B. 1:02:30). Nach dem ersten Verarbeiten kannst du die Positionen beim Anhören übernehmen und noch einmal verarbeiten."
+        return "Zeiten beziehen sich auf die Originalaufnahme (z. B. 1:02:30). Sobald die Vorschau bereit ist, kannst du die Positionen beim Anhören übernehmen."
     }
 
     private var trimControls: some View {

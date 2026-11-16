@@ -16,7 +16,7 @@ Du ziehst die Einzelspuren deiner Aufnahme hinein, zum Beispiel eine Datei pro P
 
 Der zweite Modus **„Mastern“** nimmt eine fertig geschnittene Datei und bringt sie nur auf die Ziel-Lautheit.
 
-![Spuren geladen](docs/screenshots/1-spuren.png)
+![Spuren geladen, Vorschau zum Anhören](docs/screenshots/1-spuren.png)
 
 <details>
 <summary>Weitere Screenshots</summary>
@@ -43,15 +43,16 @@ Für den MP3-Export wird [ffmpeg](https://ffmpeg.org) benötigt: `brew install f
 ### Mehrspur bereinigen
 
 1. **Spuren hineinziehen.** Eine Datei pro Person (WAV, AIFF, FLAC, M4A, MP3 oder CAF). Die oberste Spur ist die Referenz für die Synchronisation. Die Reihenfolge lässt sich per Ziehen oder über das `…`-Menü ändern.
-2. **Optional: Zuschnitt & Kapitel.** Titel der Folge, Anfang/Ende abschneiden, Kapitelmarken mit Namen.
-3. **Optional: Einstellungen.** Die Standardwerte passen für die meisten Aufnahmen (siehe unten).
-4. **Verarbeiten** (⌘R). Der Fortschritt steht unten, „Abbrechen“ ist jederzeit möglich.
-5. **Anhören.** Oben erscheint das Ergebnis mit Player. Mit **„Bereinigt | Original-Mix“** vergleichst du an derselben Stelle mit der einfachen Summe der Rohspuren, gleich laut. Mit **„Kapitel hier“**, **„Anfang hier“** und **„Ende hier“** übernimmst du die aktuelle Position. Danach einfach noch einmal verarbeiten.
-6. **„Im Finder zeigen“** öffnet den Ausgabeordner.
+2. **Vorhören.** Nach ein paar Sekunden erscheint oben ein Player mit der unbearbeiteten, schon synchronisierten Summe aller Spuren. Mit **„An dieser Stelle: Kapitel · Anfang · Ende“** übernimmst du die aktuelle Position, ganz ohne vorher zu verarbeiten.
+3. **Optional: Zuschnitt & Kapitel.** Titel der Folge, Kapitelnamen; Zeiten lassen sich auch von Hand eintippen (z. B. `1:02:30`).
+4. **Optional: Einstellungen.** Die Standardwerte passen für die meisten Aufnahmen (siehe unten).
+5. **Verarbeiten** (⌘R). Der Fortschritt steht unten, „Abbrechen“ ist jederzeit möglich. Die schon für die Vorschau gelesenen Spuren werden wiederverwendet.
+6. **Ergebnis anhören.** Der Player zeigt jetzt das Ergebnis. Mit **„Bereinigt | Original-Mix“** vergleichst du an derselben Stelle mit der einfachen Summe der Rohspuren, gleich laut. Anfang, Ende und Kapitel lassen sich auch hier noch setzen; danach einfach noch einmal verarbeiten.
+7. **„Im Finder zeigen“** öffnet den Ausgabeordner.
 
 ### Mastern
 
-Eine fertig geschnittene Datei hineinziehen, Ziel-Lautheit wählen, **Mastern**. Zuschnitt und Kapitel funktionieren hier genauso.
+Eine fertig geschnittene Datei hineinziehen; sie lässt sich sofort anhören. Ziel-Lautheit wählen, **Mastern**. Zuschnitt und Kapitel funktionieren hier genauso.
 
 ### Projekte speichern und später weitermachen
 
@@ -98,7 +99,7 @@ Im Modus „Mastern“ heißen die Dateien `<Name>_gemastert.*`.
 - **Die Bleed-Entfernung ist ein „Crossgate“, keine KI.** Sie senkt eine Spur ab, solange deren Pegel nur durch das Übersprechen der anderen erklärbar ist. Das funktioniert sehr gut, solange abwechselnd gesprochen wird. Reden zwei gleichzeitig, bleiben beide Spuren offen, und das Übersprechen ist dann hörbar. Nahe Mikrofone helfen am meisten.
 - Ist das Mikrofon einer **sehr leisen Person** weit weg vom Mund, liegt ihre Stimme kaum über dem Übersprechen. Dann kann sie beim Durcheinanderreden abgehackt klingen. Abhilfe: Mikro näher heran, oder die Empfindlichkeit senken.
 - Die Synchronisation verwendet **einen festen Versatz pro Spur**. Laufen die Spuren im Verlauf der Aufnahme auseinander (z. B. durch Netzwerkaussetzer), warnt der Bericht unter „Drift“.
-- Es gibt keine Rauschunterdrückung außer einem Hochpass bei 80 Hz, und keinen Wellenform-Editor. Zum Schneiden ist Audacity da.
+- Es gibt keine Rauschunterdrückung außer einem Hochpass bei 80 Hz und keinen Wellenform-Editor. Abgesehen von Anfang, Ende und Pausen wird nicht geschnitten; dafür ist Audacity da.
 
 ## Selbst bauen
 

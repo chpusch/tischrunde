@@ -238,7 +238,7 @@ public struct MultitrackPipeline: Sendable {
         var commonLength: Int
     }
 
-    func synchronise(_ tracks: [PipelineInput], tracker: ProgressTracker) throws -> SyncOutcome {
+    func synchronise(_ tracks: [PipelineInput], tracker: ProgressTracker, measureDrift: Bool = true) throws -> SyncOutcome {
         var offsets = [Int](repeating: 0, count: tracks.count)
         var estimates = [SyncEstimate?](repeating: nil, count: tracks.count)
         var drift = [Double?](repeating: nil, count: tracks.count)
@@ -258,7 +258,7 @@ public struct MultitrackPipeline: Sendable {
         guard commonLength >= Int(internalSampleRate) else {
             throw TischrundeError.trackTooShort(name: tracks[0].name)
         }
-        if settings.syncEnabled && tracks.count > 1 {
+        if measureDrift && settings.syncEnabled && tracks.count > 1 {
             for i in 1..<tracks.count {
                 drift[i] = try Sync.measureDrift(
                     reference: tracks[0].source, track: tracks[i].source,
