@@ -27,7 +27,7 @@ public final class DecodedAudioCache: @unchecked Sendable {
     /// The decoded file, decoding it first if needed. Concurrent requests for the
     /// same file share one decoding run.
     public func source(for url: URL, progress: @escaping @Sendable (Double) -> Void = { _ in }) async throws -> any SampleSource {
-        let key = Self.key(url)
+        let key = Self.key(for: url)
         if let file = cachedFile(for: key) {
             progress(1)
             return try MappedFileSource(url: file)
