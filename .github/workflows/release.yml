@@ -1,11 +1,19 @@
 name: Release
 
-# Creates a public GitHub release with the app as ZIP whenever a version tag
-# (e.g. v0.1.0) is pushed.
+# Creates a public GitHub release with the app as ZIP. Start it either
+# - on GitHub: Actions → Release → "Run workflow", enter a version (e.g. 0.1.0), or
+# - by pushing a version tag (e.g. v0.1.0), or by creating a release in the GitHub UI.
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version, z. B. 0.1.0'
+        required: true
+
+env:
+  TAG: ${{ github.event_name == 'workflow_dispatch' && format('v{0}', inputs.version) || github.ref_name }}
 
 permissions:
   contents: write
@@ -24,7 +32,7 @@ jobs:
         run: scripts/build_app.sh
       - name: Verpacken
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${TAG#v}"
           mkdir -p dist
           ditto -c -k --keepParent build/Tischrunde.app "dist/Tischrunde-$VERSION.zip"
           ditto -c -k build/tischrunde-cli "dist/tischrunde-cli-$VERSION.zip"
@@ -40,7 +48,13 @@ jobs:
 
           Details und Bedienung: siehe README.
           NOTES
-          gh release create "$GITHUB_REF_NAME" dist/*.zip \
-            --title "Tischrunde ${GITHUB_REF_NAME#v}" \
-            --notes-file notes.md \
-            --prerelease
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            # Release already exists (e.g. created in the GitHub UI): just attach the files.
+            gh release upload "$TAG" dist/*.zip --clobber
+          else
+            gh release create "$TAG" dist/*.zip \
+              --target "$GITHUB_SHA" \
+              --title "Tischrunde ${TAG#v}" \
+              --notes-file notes.md \
+              --prerelease
+          fi
