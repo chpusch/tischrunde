@@ -31,3 +31,10 @@ jobs:
         run: swift build
       - name: Test
         run: swift test
+      - name: App-Bundle
+        run: scripts/build_app.sh
+      - name: Bundle hochladen
+        uses: actions/upload-artifact@v4
+        with:
+          name: Tischrunde-app
+          path: build/Tischrunde.app
