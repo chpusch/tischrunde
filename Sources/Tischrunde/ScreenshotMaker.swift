@@ -70,6 +70,7 @@ enum ScreenshotMaker {
         model.editingExpanded = false
 
         // 5. Mastering mode.
+        model.output.folderPath = nil
         model.mode = .master
         model.add([files[0]])
         model.settingsExpanded = true
@@ -115,9 +116,9 @@ enum ScreenshotMaker {
 
         // Who speaks when: alternating turns with some overlap and pauses.
         let turns: [[Range<Double>]] = [
-            [0.5..<12, 30..<41, 58..<70, 84..<89],
-            [12.5..<22, 41.5..<50, 70..<78],
-            [22.5..<29, 50.5..<57, 78..<84, 84..<88],
+            [0.5..<12, 30..<40, 58..<70, 84..<89],
+            [12.5..<22, 43.5..<50, 70..<78],
+            [22.5..<29, 50.5..<57, 80.5..<84, 84..<88],
         ]
         let levels: [Float] = [0.12, 0.05, 0.08]
         var voices: [[Float]] = []

@@ -110,13 +110,23 @@ struct PlayerView: View {
                         Text("Original-Mix").tag(ABPlayer.Version.original)
                     }
                     .pickerStyle(.segmented)
+                    .labelsHidden()
                     .fixedSize()
                     .help("Original-Mix = einfache Summe der synchronisierten Rohspuren, gleich laut")
                 }
-                Spacer()
-                Button("Kapitel hier", systemImage: "bookmark") { model.addChapter() }
-                Button("Anfang hier", systemImage: "arrow.right.to.line") { model.setTrimStartToPlayhead() }
-                Button("Ende hier", systemImage: "arrow.left.to.line") { model.setTrimEndToPlayhead() }
+                Spacer(minLength: 12)
+                Text("An dieser Stelle:")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Group {
+                    Button("Kapitel", systemImage: "bookmark") { model.addChapter() }
+                        .help("Neues Kapitel an der aktuellen Position")
+                    Button("Anfang", systemImage: "arrow.right.to.line") { model.setTrimStartToPlayhead() }
+                        .help("Alles davor abschneiden")
+                    Button("Ende", systemImage: "arrow.left.to.line") { model.setTrimEndToPlayhead() }
+                        .help("Alles danach abschneiden")
+                }
+                .fixedSize()
             }
             .controlSize(.small)
             .disabled(!player.isLoaded)
