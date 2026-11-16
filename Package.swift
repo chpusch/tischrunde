@@ -22,6 +22,10 @@ var targets: [Target] = [
 ]
 
 #if os(macOS)
+// AVFoundation types are not Sendable yet; the Swift 5 language mode keeps the
+// macOS layers pragmatic while the core stays in strict Swift 6 mode.
+let platformSettings: [SwiftSetting] = [.swiftLanguageMode(.v5)]
+
 products += [
     .executable(name: "Tischrunde", targets: ["Tischrunde"]),
     .executable(name: "tischrunde-cli", targets: ["tischrunde-cli"]),
@@ -31,18 +35,26 @@ targets += [
     .target(
         name: "TischrundeIO",
         dependencies: ["TischrundeCore"],
-        path: "Sources/TischrundeIO"
+        path: "Sources/TischrundeIO",
+        swiftSettings: platformSettings
     ),
     .executableTarget(
         name: "Tischrunde",
         dependencies: ["TischrundeCore", "TischrundeIO"],
         path: "Sources/Tischrunde",
-        swiftSettings: [.defaultIsolation(MainActor.self)]
+        swiftSettings: platformSettings + [.defaultIsolation(MainActor.self)]
     ),
     .executableTarget(
         name: "tischrunde-cli",
         dependencies: ["TischrundeCore", "TischrundeIO"],
-        path: "Sources/tischrunde-cli"
+        path: "Sources/tischrunde-cli",
+        swiftSettings: platformSettings
+    ),
+    .testTarget(
+        name: "TischrundeIOTests",
+        dependencies: ["TischrundeCore", "TischrundeIO"],
+        path: "Tests/TischrundeIOTests",
+        swiftSettings: platformSettings
     ),
 ]
 #endif
