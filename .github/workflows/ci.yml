@@ -29,7 +29,9 @@ jobs:
           xcodebuild -version
           swift --version
       - name: Build
-        run: swift build
+        run: |
+          set -o pipefail
+          swift build 2>&1 | tee build.log || { echo "::group::Fehler"; grep -E "error:" -A4 build.log; echo "::endgroup::"; exit 1; }
       - name: Test
         run: swift test
       - name: App-Bundle

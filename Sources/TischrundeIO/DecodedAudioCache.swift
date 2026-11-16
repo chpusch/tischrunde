@@ -28,18 +28,32 @@ public final class DecodedAudioCache: @unchecked Sendable {
     /// same file share one decoding run.
     public func source(for url: URL, progress: @escaping @Sendable (Double) -> Void = { _ in }) async throws -> any SampleSource {
         let key = Self.key(url)
-        let task: Task<URL, Error>
-        lock.lock()
-        if let file = entries[key] {
-            lock.unlock()
+        if let file = cachedFile(for: key) {
             progress(1)
             return try MappedFileSource(url: file)
         }
-        if let running = inFlight[key] {
-            task = running
-        } else {
+        let task = decodingTask(for: key, url: url, progress: progress)
+        do {
+            let file = try await task.value
+            finish(key: key, file: file)
+            return try MappedFileSource(url: file)
+        } catch {
+            finish(key: key, file: nil)
+            throw error
+        }
+    }
+
+    // Small synchronous helpers: locks must not be held across `await`.
+
+    private func cachedFile(for key: String) -> URL? {
+        lock.withLock { entries[key] }
+    }
+
+    private func decodingTask(for key: String, url: URL, progress: @escaping @Sendable (Double) -> Void) -> Task<URL, Error> {
+        lock.withLock {
+            if let running = inFlight[key] { return running }
             let destination = folder.appendingPathComponent("\(UUID().uuidString).f32")
-            task = Task.detached(priority: .userInitiated) {
+            let task = Task.detached(priority: .userInitiated) {
                 let sink = try RawFileSink(url: destination)
                 do {
                     try AudioDecoder.decode(url, into: sink, progress: progress)
@@ -50,40 +64,32 @@ public final class DecodedAudioCache: @unchecked Sendable {
                 return destination
             }
             inFlight[key] = task
+            return task
         }
-        lock.unlock()
+    }
 
-        do {
-            let file = try await task.value
-            lock.lock()
-            entries[key] = file
+    private func finish(key: String, file: URL?) {
+        lock.withLock {
+            if let file { entries[key] = file }
             inFlight[key] = nil
-            lock.unlock()
-            return try MappedFileSource(url: file)
-        } catch {
-            lock.lock()
-            inFlight[key] = nil
-            lock.unlock()
-            throw error
         }
     }
 
     /// Forgets (and deletes) decoded files that are not in `urls`.
     public func keep(only urls: [URL]) {
         let wanted = Set(urls.map(Self.key(for:)))
-        lock.lock()
-        let obsolete = entries.filter { !wanted.contains($0.key) }
-        for key in obsolete.keys { entries[key] = nil }
-        lock.unlock()
+        let obsolete = lock.withLock {
+            let obsolete = entries.filter { !wanted.contains($0.key) }
+            for key in obsolete.keys { entries[key] = nil }
+            return obsolete
+        }
         for file in obsolete.values {
             try? FileManager.default.removeItem(at: file)
         }
     }
 
     public func removeAll() {
-        lock.lock()
-        entries.removeAll()
-        lock.unlock()
+        lock.withLock { entries.removeAll() }
         try? FileManager.default.removeItem(at: folder)
     }
 }
