@@ -7,7 +7,7 @@ on:
   push:
     branches: ['claude/**']
     paths:
-      - 'Sources/Tischrunde/**'
+      - 'Sources/**'
       - '.github/workflows/screenshots.yml'
 
 permissions:
