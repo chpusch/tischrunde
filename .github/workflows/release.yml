@@ -1,0 +1,46 @@
+name: Release
+
+# Creates a public GitHub release with the app as ZIP whenever a version tag
+# (e.g. v0.1.0) is pushed.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Tests
+        run: swift test
+      - name: App bauen
+        run: scripts/build_app.sh
+      - name: Verpacken
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p dist
+          ditto -c -k --keepParent build/Tischrunde.app "dist/Tischrunde-$VERSION.zip"
+          ditto -c -k build/tischrunde-cli "dist/tischrunde-cli-$VERSION.zip"
+          ls -la dist
+      - name: Release anlegen
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > notes.md <<'NOTES'
+          **Installation:** `Tischrunde-….zip` laden, entpacken, `Tischrunde.app` in *Programme* ziehen.
+          Beim ersten Start **Rechtsklick → Öffnen** (die App ist nicht von Apple notarisiert).
+          Voraussetzung: macOS 26 oder neuer. Für MP3: `brew install ffmpeg`.
+
+          Details und Bedienung: siehe README.
+          NOTES
+          gh release create "$GITHUB_REF_NAME" dist/*.zip \
+            --title "Tischrunde ${GITHUB_REF_NAME#v}" \
+            --notes-file notes.md \
+            --prerelease
