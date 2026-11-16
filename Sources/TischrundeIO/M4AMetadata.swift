@@ -89,22 +89,44 @@ public enum M4AMetadata {
             }
         }
 
+        /// Waits until `input` accepts data, appending pending chapters meanwhile.
+        /// Gives up after 10 s instead of hanging forever.
+        func waitUntilReady(_ input: AVAssetWriterInput, time: Double) async throws {
+            var waited = 0
+            while !input.isReadyForMoreMediaData {
+                try appendMarks(upTo: time)
+                if writer.status == .failed {
+                    throw AudioIOError.metadataFailed(message: writer.error?.localizedDescription ?? "Schreiben fehlgeschlagen")
+                }
+                waited += 1
+                if waited > 5_000 {
+                    throw AudioIOError.metadataFailed(message: "Zeitüberschreitung beim Schreiben")
+                }
+                try await Task.sleep(for: .milliseconds(2))
+            }
+        }
+
         while let sample = output.copyNextSampleBuffer() {
             try Task.checkCancellation()
             let time = CMSampleBufferGetPresentationTimeStamp(sample).seconds
-            try appendMarks(upTo: time + 0.5)
-            while !audioInput.isReadyForMoreMediaData {
-                try await Task.sleep(for: .milliseconds(2))
-                try appendMarks(upTo: time + 0.5)
-            }
+            // Chapters are few and tiny: hand them over well ahead of the audio.
+            try appendMarks(upTo: time + 30)
+            try await waitUntilReady(audioInput, time: time + 30)
             guard audioInput.append(sample) else {
                 throw AudioIOError.metadataFailed(message: writer.error?.localizedDescription ?? "Audio")
             }
         }
         audioInput.markAsFinished()
+        var waited = 0
         while nextMark < marks.count {
             try appendMarks(upTo: .infinity)
-            if nextMark < marks.count { try await Task.sleep(for: .milliseconds(2)) }
+            if nextMark < marks.count {
+                waited += 1
+                if waited > 5_000 {
+                    throw AudioIOError.metadataFailed(message: "Zeitüberschreitung bei den Kapiteln")
+                }
+                try await Task.sleep(for: .milliseconds(2))
+            }
         }
         textInput?.markAsFinished()
 

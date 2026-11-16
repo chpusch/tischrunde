@@ -4,7 +4,7 @@ import Testing
 import TischrundeCore
 @testable import TischrundeIO
 
-@Suite("Audio-I/O")
+@Suite("Audio-I/O", .timeLimit(.minutes(2)))
 struct AudioIOTests {
     let folder: URL
 
