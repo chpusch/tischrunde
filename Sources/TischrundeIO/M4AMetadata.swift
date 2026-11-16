@@ -122,61 +122,66 @@ public enum M4AMetadata {
         }
         writer.startSession(atSourceTime: .zero)
 
-        var nextMark = 0
-        /// Appends chapter samples up to `time`, as far as the writer accepts them,
-        /// so text and audio stay interleaved.
-        func appendMarks(upTo time: Double) throws {
-            guard let textInput, let textFormat else { return }
-            while nextMark < marks.count, marks[nextMark].start <= time, textInput.isReadyForMoreMediaData {
-                let mark = marks[nextMark]
-                let sample = try makeTextSample(mark.title, start: mark.start, duration: mark.duration, format: textFormat, variant: variant)
-                guard textInput.append(sample) else {
-                    throw AudioIOError.metadataFailed(message: describe(writer.error))
-                }
-                nextMark += 1
+        // Prepare all chapter samples up front; there are only a handful.
+        var textSamples: [CMSampleBuffer] = []
+        if let textFormat {
+            for mark in marks {
+                textSamples.append(try makeTextSample(
+                    mark.title, start: mark.start, duration: mark.duration, format: textFormat, variant: variant
+                ))
             }
         }
 
-        /// Waits until `input` accepts data, appending pending chapters meanwhile.
-        /// Gives up after 10 s instead of hanging forever.
-        func waitUntilReady(_ input: AVAssetWriterInput, time: Double) async throws {
-            var waited = 0
-            while !input.isReadyForMoreMediaData {
-                try appendMarks(upTo: time)
-                if writer.status == .failed {
-                    throw AudioIOError.metadataFailed(message: describe(writer.error))
+        // Feed both tracks whenever the writer asks for data. This is Apple's
+        // recommended pattern; feeding them from one loop can deadlock because the
+        // writer interleaves tracks and may wait for one while we wait for the other.
+        let state = RemuxState()
+        let queue = DispatchQueue(label: "tischrunde.remux")
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let group = DispatchGroup()
+            group.enter()
+            audioInput.requestMediaDataWhenReady(on: queue) {
+                while audioInput.isReadyForMoreMediaData && !state.audioDone {
+                    if let sample = output.copyNextSampleBuffer() {
+                        if !audioInput.append(sample) {
+                            state.failed = true
+                            state.audioDone = true
+                        }
+                    } else {
+                        state.audioDone = true
+                    }
+                    if state.audioDone {
+                        audioInput.markAsFinished()
+                        group.leave()
+                    }
                 }
-                waited += 1
-                if waited > 5_000 {
-                    throw AudioIOError.metadataFailed(message: "Zeitüberschreitung beim Schreiben")
+            }
+            if let textInput {
+                group.enter()
+                textInput.requestMediaDataWhenReady(on: queue) {
+                    while textInput.isReadyForMoreMediaData && !state.textDone {
+                        if state.nextText < textSamples.count {
+                            if !textInput.append(textSamples[state.nextText]) {
+                                state.failed = true
+                                state.textDone = true
+                            }
+                            state.nextText += 1
+                        } else {
+                            state.textDone = true
+                        }
+                        if state.textDone {
+                            textInput.markAsFinished()
+                            group.leave()
+                        }
+                    }
                 }
-                try await Task.sleep(for: .milliseconds(2))
             }
+            group.notify(queue: queue) { continuation.resume() }
         }
-
-        while let sample = output.copyNextSampleBuffer() {
-            try Task.checkCancellation()
-            let time = CMSampleBufferGetPresentationTimeStamp(sample).seconds
-            // Chapters are few and tiny: hand them over well ahead of the audio.
-            try appendMarks(upTo: time + 30)
-            try await waitUntilReady(audioInput, time: time + 30)
-            guard audioInput.append(sample) else {
-                throw AudioIOError.metadataFailed(message: describe(writer.error))
-            }
+        if state.failed {
+            writer.cancelWriting()
+            throw AudioIOError.metadataFailed(message: describe(writer.error))
         }
-        audioInput.markAsFinished()
-        var waited = 0
-        while nextMark < marks.count {
-            try appendMarks(upTo: .infinity)
-            if nextMark < marks.count {
-                waited += 1
-                if waited > 5_000 {
-                    throw AudioIOError.metadataFailed(message: "Zeitüberschreitung bei den Kapiteln")
-                }
-                try await Task.sleep(for: .milliseconds(2))
-            }
-        }
-        textInput?.markAsFinished()
 
         if reader.status == .failed {
             throw AudioIOError.metadataFailed(message: describe(reader.error))
@@ -185,6 +190,14 @@ public enum M4AMetadata {
         guard writer.status == .completed else {
             throw AudioIOError.metadataFailed(message: describe(writer.error))
         }
+    }
+
+    /// Progress shared between the two feeding blocks (both run on one serial queue).
+    final class RemuxState: @unchecked Sendable {
+        var audioDone = false
+        var textDone = false
+        var nextText = 0
+        var failed = false
     }
 
     struct Mark {
