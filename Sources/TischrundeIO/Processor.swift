@@ -53,6 +53,8 @@ public struct ProcessingOutcome: Sendable {
     public var originalMixURL: URL?
     /// Non-fatal problems during export (e.g. MP3 failed but the rest worked).
     public var exportWarnings: [String]
+    /// How the source timeline maps to the output (for trim and chapter positions).
+    public var edits: EditList
     /// Temporary working folder of this run.
     public var workFolder: URL
 
@@ -231,6 +233,7 @@ public enum Processor {
             ),
             originalMixURL: originalMixURL,
             exportWarnings: warnings,
+            edits: result.edits,
             workFolder: workFolder
         )
     }

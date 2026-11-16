@@ -44,7 +44,7 @@ extension AudioIOError: LocalizedError {
     }
 }
 
-extension TischrundeError: @retroactive LocalizedError {
+extension TischrundeError: LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .noTracks:

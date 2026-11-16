@@ -48,7 +48,7 @@ public enum AudioDecoder {
     /// Channels are averaged (a phone recording in stereo carries the same voice on
     /// both sides) and the sample rate is converted with the highest-quality
     /// converter AVFoundation offers.
-    public static func decode(_ url: URL, into sink: any SampleSink, progress: (Double) -> Void = { _ in }) throws {
+    public static func decode(_ url: URL, into sink: any SampleSink, progress: @escaping (Double) -> Void = { _ in }) throws {
         let file = try open(url)
         let inputFormat = file.processingFormat
         let channels = Int(inputFormat.channelCount)
