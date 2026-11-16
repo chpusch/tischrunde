@@ -32,7 +32,7 @@ Der zweite Modus **„Mastern“** nimmt eine fertig geschnittene Datei und brin
 
 ## Installation
 
-1. Unter [Releases](../../releases) oder in den [Actions-Artefakten](../../actions/workflows/ci.yml) `Tischrunde.app` herunterladen, oder selbst bauen (siehe unten).
+1. Unter [Releases](../../releases) die neueste `Tischrunde-….zip` herunterladen und entpacken – oder selbst bauen (siehe unten).
 2. In den Ordner *Programme* ziehen.
 3. **Beim ersten Start:** Die App ist nicht von Apple notarisiert. Deshalb mit **Rechtsklick → Öffnen** starten und im Dialog **Öffnen** bestätigen. Falls macOS das verweigert: *Systemeinstellungen → Datenschutz & Sicherheit → „Dennoch öffnen“*.
 
