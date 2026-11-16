@@ -28,6 +28,11 @@ public enum ProcessingStage: Sendable, Equatable {
 public struct ProcessingProgress: Sendable, Equatable {
     public var stage: ProcessingStage
     public var fraction: Double
+
+    public init(stage: ProcessingStage, fraction: Double) {
+        self.stage = stage
+        self.fraction = fraction
+    }
 }
 
 /// Files written by a run.
