@@ -1,5 +1,7 @@
 # Tischrunde
 
+**Ungetestet - bauen lassen durch drei Prompts während ich mich auskuriert habe. Wenn ich das mal getestet habe, dann verschwindet der Disclaimer **
+
 **Mehrspur-Nachbearbeitung für Podcasts, bei denen alle an einem Tisch sitzen.**
 Eine schlanke, kostenlose macOS-App. Sie arbeitet komplett offline und ist Open Source (MIT).
 
