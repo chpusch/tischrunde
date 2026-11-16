@@ -68,8 +68,11 @@ public enum AudioDecoder {
         /// Reads the next chunk and mixes it down to mono. Returns false at the end.
         func readMono() throws -> Bool {
             try Task.checkCancellation()
+            // Reading at the end throws on current macOS instead of returning 0 frames.
+            let remaining = file.length - file.framePosition
+            guard remaining > 0 else { return false }
             do {
-                try file.read(into: readBuffer, frameCount: chunk)
+                try file.read(into: readBuffer, frameCount: AVAudioFrameCount(min(Int64(chunk), remaining)))
             } catch {
                 throw AudioIOError.unreadable(name: url.lastPathComponent)
             }

@@ -15,7 +15,23 @@ public enum M4AMetadata {
             .appendingPathComponent(".\(url.deletingPathExtension().lastPathComponent)-\(UUID().uuidString).m4a")
         defer { try? FileManager.default.removeItem(at: temporary) }
 
-        try await remux(source: url, destination: temporary, title: title, chapters: chapters)
+        // Writers differ in which chapter text flavour they accept; try the common
+        // ones in turn and keep the first that works.
+        var failures: [String] = []
+        var succeeded = false
+        for variant in TextVariant.allCases {
+            do {
+                try? FileManager.default.removeItem(at: temporary)
+                try await remux(source: url, destination: temporary, title: title, chapters: chapters, variant: variant)
+                succeeded = true
+                break
+            } catch let error as AudioIOError {
+                if case let .metadataFailed(message) = error { failures.append("\(variant): \(message)") } else { throw error }
+            }
+        }
+        guard succeeded else {
+            throw AudioIOError.metadataFailed(message: failures.joined(separator: "; "))
+        }
         do {
             _ = try FileManager.default.replaceItemAt(url, withItemAt: temporary)
         } catch {
@@ -23,7 +39,36 @@ public enum M4AMetadata {
         }
     }
 
-    static func remux(source: URL, destination: URL, title: String, chapters: [Chapter]) async throws {
+    /// Chapter text formats: QuickTime text (what Apple's own tools write) and
+    /// 3GPP timed text (tx3g, common in MP4 files from other tools).
+    enum TextVariant: CaseIterable, CustomStringConvertible {
+        case quickTime
+        case timedText
+
+        var subType: FourCharCode {
+            switch self {
+            case .quickTime: FourCharCode(kCMTextFormatType_QTText)
+            case .timedText: FourCharCode(kCMTextFormatType_3GText)
+            }
+        }
+
+        var description: String {
+            self == .quickTime ? "QT-Text" : "tx3g"
+        }
+    }
+
+    /// Error text including the underlying CoreMedia error, which is where the
+    /// useful detail is.
+    static func describe(_ error: Error?) -> String {
+        guard let error = error as NSError? else { return "unbekannter Fehler" }
+        var text = "\(error.localizedDescription) (\(error.domain) \(error.code))"
+        if let underlying = error.userInfo[NSUnderlyingErrorKey] as? NSError {
+            text += " – \(underlying.domain) \(underlying.code)"
+        }
+        return text
+    }
+
+    static func remux(source: URL, destination: URL, title: String, chapters: [Chapter], variant: TextVariant) async throws {
         let asset = AVURLAsset(url: source)
         guard let track = try await asset.loadTracks(withMediaType: .audio).first else {
             throw AudioIOError.metadataFailed(message: "keine Audiospur")
@@ -53,10 +98,13 @@ public enum M4AMetadata {
         var textInput: AVAssetWriterInput?
         var textFormat: CMFormatDescription?
         if !marks.isEmpty {
-            let format = try makeTextFormat()
+            let format = try makeTextFormat(variant)
             let input = AVAssetWriterInput(mediaType: .text, outputSettings: nil, sourceFormatHint: format)
             input.expectsMediaDataInRealTime = false
             input.marksOutputTrackAsEnabled = false
+            guard writer.canAdd(input) else {
+                throw AudioIOError.metadataFailed(message: "Kapitelspur wird nicht akzeptiert")
+            }
             writer.add(input)
             let association = AVAssetTrack.AssociationType.chapterList.rawValue
             if audioInput.canAddTrackAssociation(withTrackOf: input, type: association) {
@@ -67,10 +115,10 @@ public enum M4AMetadata {
         }
 
         guard reader.startReading() else {
-            throw AudioIOError.metadataFailed(message: reader.error?.localizedDescription ?? "Lesen fehlgeschlagen")
+            throw AudioIOError.metadataFailed(message: describe(reader.error))
         }
         guard writer.startWriting() else {
-            throw AudioIOError.metadataFailed(message: writer.error?.localizedDescription ?? "Schreiben fehlgeschlagen")
+            throw AudioIOError.metadataFailed(message: describe(writer.error))
         }
         writer.startSession(atSourceTime: .zero)
 
@@ -81,9 +129,9 @@ public enum M4AMetadata {
             guard let textInput, let textFormat else { return }
             while nextMark < marks.count, marks[nextMark].start <= time, textInput.isReadyForMoreMediaData {
                 let mark = marks[nextMark]
-                let sample = try makeTextSample(mark.title, start: mark.start, duration: mark.duration, format: textFormat)
+                let sample = try makeTextSample(mark.title, start: mark.start, duration: mark.duration, format: textFormat, variant: variant)
                 guard textInput.append(sample) else {
-                    throw AudioIOError.metadataFailed(message: writer.error?.localizedDescription ?? "Kapitel")
+                    throw AudioIOError.metadataFailed(message: describe(writer.error))
                 }
                 nextMark += 1
             }
@@ -96,7 +144,7 @@ public enum M4AMetadata {
             while !input.isReadyForMoreMediaData {
                 try appendMarks(upTo: time)
                 if writer.status == .failed {
-                    throw AudioIOError.metadataFailed(message: writer.error?.localizedDescription ?? "Schreiben fehlgeschlagen")
+                    throw AudioIOError.metadataFailed(message: describe(writer.error))
                 }
                 waited += 1
                 if waited > 5_000 {
@@ -113,7 +161,7 @@ public enum M4AMetadata {
             try appendMarks(upTo: time + 30)
             try await waitUntilReady(audioInput, time: time + 30)
             guard audioInput.append(sample) else {
-                throw AudioIOError.metadataFailed(message: writer.error?.localizedDescription ?? "Audio")
+                throw AudioIOError.metadataFailed(message: describe(writer.error))
             }
         }
         audioInput.markAsFinished()
@@ -131,11 +179,11 @@ public enum M4AMetadata {
         textInput?.markAsFinished()
 
         if reader.status == .failed {
-            throw AudioIOError.metadataFailed(message: reader.error?.localizedDescription ?? "Lesen fehlgeschlagen")
+            throw AudioIOError.metadataFailed(message: describe(reader.error))
         }
         await writer.finishWriting()
         guard writer.status == .completed else {
-            throw AudioIOError.metadataFailed(message: writer.error?.localizedDescription ?? "Schreiben fehlgeschlagen")
+            throw AudioIOError.metadataFailed(message: describe(writer.error))
         }
     }
 
@@ -162,13 +210,51 @@ public enum M4AMetadata {
         return marks
     }
 
-    static func makeTextFormat() throws -> CMFormatDescription {
+    static func makeTextFormat(_ variant: TextVariant) throws -> CMFormatDescription {
+        func color(_ r: Int, _ g: Int, _ b: Int, _ a: Int) -> [String: Any] {
+            [
+                kCMTextFormatDescriptionColor_Red as String: r,
+                kCMTextFormatDescriptionColor_Green as String: g,
+                kCMTextFormatDescriptionColor_Blue as String: b,
+                kCMTextFormatDescriptionColor_Alpha as String: a,
+            ]
+        }
+        // Writers expect a complete sample description (style, box, font table),
+        // even though chapter text is never displayed.
+        var extensions: [String: Any] = [
+            kCMTextFormatDescriptionExtension_DisplayFlags as String: 0,
+            kCMTextFormatDescriptionExtension_BackgroundColor as String: color(0, 0, 0, 255),
+            kCMTextFormatDescriptionExtension_DefaultTextBox as String: [
+                kCMTextFormatDescriptionRect_Top as String: 0,
+                kCMTextFormatDescriptionRect_Left as String: 0,
+                kCMTextFormatDescriptionRect_Bottom as String: 0,
+                kCMTextFormatDescriptionRect_Right as String: 0,
+            ],
+            kCMTextFormatDescriptionExtension_DefaultStyle as String: [
+                kCMTextFormatDescriptionStyle_StartChar as String: 0,
+                kCMTextFormatDescriptionStyle_EndChar as String: 0,
+                kCMTextFormatDescriptionStyle_Font as String: 1,
+                kCMTextFormatDescriptionStyle_FontFace as String: 0,
+                kCMTextFormatDescriptionStyle_FontSize as String: 12,
+                kCMTextFormatDescriptionStyle_ForegroundColor as String: color(255, 255, 255, 255),
+            ],
+            kCMTextFormatDescriptionExtension_FontTable as String: ["1": "Sans-Serif"],
+        ]
+        switch variant {
+        case .quickTime:
+            extensions[kCMTextFormatDescriptionExtension_TextJustification as String] = 0
+            extensions[kCMTextFormatDescriptionExtension_DefaultFontName as String] = "Sans-Serif"
+        case .timedText:
+            extensions[kCMTextFormatDescriptionExtension_HorizontalJustification as String] = 0
+            extensions[kCMTextFormatDescriptionExtension_VerticalJustification as String] = 0
+        }
+
         var format: CMFormatDescription?
         let status = CMFormatDescriptionCreate(
             allocator: kCFAllocatorDefault,
             mediaType: kCMMediaType_Text,
-            mediaSubType: FourCharCode(kCMTextFormatType_QTText),
-            extensions: nil,
+            mediaSubType: variant.subType,
+            extensions: extensions as CFDictionary,
             formatDescriptionOut: &format
         )
         guard status == noErr, let format else {
@@ -179,11 +265,16 @@ public enum M4AMetadata {
 
     /// A QuickTime text sample: 16-bit big-endian length, UTF-8 text, and an
     /// `encd` atom declaring the encoding as UTF-8.
-    static func makeTextSample(_ text: String, start: Double, duration: Double, format: CMFormatDescription) throws -> CMSampleBuffer {
+    static func makeTextSample(
+        _ text: String, start: Double, duration: Double, format: CMFormatDescription, variant: TextVariant
+    ) throws -> CMSampleBuffer {
         let utf8 = Array(text.utf8.prefix(Int(UInt16.max)))
         var bytes: [UInt8] = [UInt8(utf8.count >> 8), UInt8(utf8.count & 0xFF)]
         bytes += utf8
-        bytes += [0, 0, 0, 12] + Array("encd".utf8) + [0, 0, 1, 0]
+        if variant == .quickTime {
+            // QuickTime text defaults to Mac Roman; declare UTF-8 explicitly.
+            bytes += [0, 0, 0, 12] + Array("encd".utf8) + [0, 0, 1, 0]
+        }
 
         var block: CMBlockBuffer?
         var status = CMBlockBufferCreateWithMemoryBlock(
